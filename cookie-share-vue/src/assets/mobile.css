@@ -1,0 +1,20 @@
+/* 移动端触摸反馈优化 */
+.el-button {
+  transition: all 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.el-button:active {
+  transform: scale(0.98);
+}
+
+/* 输入框优化 */
+.el-input :deep(.el-input__inner) {
+  -webkit-appearance: none;
+  border-radius: 6px !important;
+}
+
+/* 弹窗滚动优化 */
+.el-dialog__body {
+  -webkit-overflow-scrolling: touch;
+} 

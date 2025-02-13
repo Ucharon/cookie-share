@@ -3,6 +3,7 @@ import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
+import './assets/mobile.css'
 
 // 在开发环境中模拟 GM API
 if (import.meta.env.DEV) {

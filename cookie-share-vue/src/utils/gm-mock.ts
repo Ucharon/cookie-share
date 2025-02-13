@@ -14,11 +14,31 @@ function updateGMStorage(storage: GMValueStorage) {
   localStorage.setItem(GM_MOCK_STORAGE_KEY, JSON.stringify(storage))
 }
 
-// 模拟GM_setValue
+// 添加模拟的监听器存储
+const valueChangeListeners: Record<string, Array<Function>> = {}
+
+// 模拟 GM_addValueChangeListener
+window.GM_addValueChangeListener = (name: string, callback: Function) => {
+  if (!valueChangeListeners[name]) {
+    valueChangeListeners[name] = []
+  }
+  valueChangeListeners[name].push(callback)
+  return valueChangeListeners[name].length - 1 // 返回监听器ID
+}
+
+// 修改 GM_setValue 实现
 const GM_setValue = (name: string, value: any) => {
+  const oldValue = GM_getValue(name, undefined)
   const storage = getGMStorage()
   storage[name] = value
   updateGMStorage(storage)
+  
+  // 触发监听器
+  if (valueChangeListeners[name]) {
+    valueChangeListeners[name].forEach(cb => 
+      cb(name, oldValue, value, false)
+    )
+  }
 }
 
 // 模拟GM_getValue
@@ -47,44 +67,114 @@ window.GM_listValues = (): string[] => {
   return Array.from(getGMStorage().keys())
 }
 
-// GM_cookie 的模拟实现
+// 在文件顶部添加模拟存储
+let mockCookies: any[] = []
+
+// 添加模拟cookie存储
+let mockCookieStore: GMCookie[] = [];
+
+// 修改 GM_cookie 的模拟实现
 window.GM_cookie = {
-  list: (details: GMCookieDetails, callback: (cookies: GMCookie[]) => void) => {
-    callback([])
+  list: (details: { domain?: string; name?: string; path?: string }, callback: (cookies: GMCookie[]) => void) => {
+    try {
+      // 从实际的document.cookie中获取cookies
+      const allCookies = document.cookie.split(';').map(cookie => {
+        const [name, value] = cookie.trim().split('=')
+        return {
+          name,
+          value,
+          domain: window.location.hostname,
+          path: '/',
+          secure: window.location.protocol === 'https:',
+          sameSite: 'Lax' as const,
+          httpOnly: false
+        }
+      })
+
+      // 根据条件过滤
+      const filtered = allCookies.filter(c => {
+        if (details.domain && c.domain !== details.domain) return false
+        if (details.name && c.name !== details.name) return false
+        if (details.path && c.path !== details.path) return false
+        return true
+      })
+
+      callback(filtered)
+    } catch (error) {
+      console.error('Error listing cookies:', error)
+      callback([])
+    }
   },
-  set: (details: GMCookie, callback?: () => void) => {
-    callback?.()
+
+  set: (details: GMCookie, callback: (success: boolean, error?: any) => void) => {
+    try {
+      // 构建cookie字符串
+      let cookieStr = `${details.name}=${details.value}`
+      if (details.domain) cookieStr += `; domain=${details.domain}`
+      if (details.path) cookieStr += `; path=${details.path}`
+      if (details.secure) cookieStr += `; secure`
+      if (details.sameSite) cookieStr += `; samesite=${details.sameSite.toLowerCase()}`
+      if (details.expirationDate) {
+        cookieStr += `; expires=${new Date(details.expirationDate * 1000).toUTCString()}`
+      }
+
+      // 实际设置cookie
+      document.cookie = cookieStr
+      callback(true)
+    } catch (error) {
+      console.error('Error setting cookie:', error)
+      callback(false, error)
+    }
   },
-  delete: (details: GMCookieDetails, callback?: () => void) => {
-    callback?.()
+
+  delete: (details: { name: string; domain: string; path?: string }, callback: (success: boolean) => void) => {
+    try {
+      // 通过设置过期时间来删除cookie
+      document.cookie = `${details.name}=; domain=${details.domain}; path=${details.path || '/'}; expires=Thu, 01 Jan 1970 00:00:00 GMT`
+      callback(true)
+    } catch (error) {
+      console.error('Error deleting cookie:', error)
+      callback(false)
+    }
   }
 }
 
 // GM_xmlhttpRequest 的模拟实现
 window.GM_xmlhttpRequest = (details: GMXMLHttpRequestDetails) => {
   const xhr = new XMLHttpRequest()
-  xhr.open(details.method || 'GET', details.url)
+  
+  // 修改凭证处理逻辑
+  xhr.withCredentials = details.credentials === 'include'
+  
+  xhr.open(details.method || 'GET', details.url, true)
 
   if (details.headers) {
     Object.entries(details.headers).forEach(([key, value]) => {
-      xhr.setRequestHeader(key, value)
+      try {
+        xhr.setRequestHeader(key, value)
+      } catch (e) {
+        console.warn(`无法设置请求头 ${key}: ${value}`)
+      }
     })
   }
 
+  // 修改响应处理
   xhr.onload = () => {
-    details.onload?.({
+    const response = {
       status: xhr.status,
       statusText: xhr.statusText,
       responseText: xhr.responseText,
-      response: xhr.response,
+      response: details.responseType === 'json' && xhr.responseText 
+        ? JSON.parse(xhr.responseText)
+        : xhr.response,
       responseHeaders: xhr.getAllResponseHeaders(),
       readyState: xhr.readyState,
-      finalUrl: details.url,
-      context: details.context,
-      responseXML: xhr.responseXML
-    })
+      finalUrl: details.url
+    }
+    details.onload?.(response)
   }
 
+  // 移除context相关的不存在属性
   xhr.onerror = () => details.onerror?.({
     status: xhr.status,
     statusText: xhr.statusText,
@@ -92,9 +182,7 @@ window.GM_xmlhttpRequest = (details: GMXMLHttpRequestDetails) => {
     response: xhr.response,
     responseHeaders: xhr.getAllResponseHeaders(),
     readyState: xhr.readyState,
-    finalUrl: details.url,
-    context: details.context,
-    responseXML: xhr.responseXML
+    finalUrl: details.url
   })
 
   xhr.ontimeout = () => details.ontimeout?.({
@@ -104,9 +192,7 @@ window.GM_xmlhttpRequest = (details: GMXMLHttpRequestDetails) => {
     response: xhr.response,
     responseHeaders: xhr.getAllResponseHeaders(),
     readyState: xhr.readyState,
-    finalUrl: details.url,
-    context: details.context,
-    responseXML: xhr.responseXML
+    finalUrl: details.url
   })
 
   xhr.send(details.data)

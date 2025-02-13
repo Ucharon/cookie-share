@@ -10,13 +10,9 @@
       <el-input
         v-model="form.serverUrl"
         placeholder="https://example.com/your-secret-path"
-        :disabled="isLocked"
       >
         <template #prefix>
           <el-icon><Connection /></el-icon>
-        </template>
-        <template v-if="isLocked" #suffix>
-          <el-tag type="success" effect="plain">已配置</el-tag>
         </template>
       </el-input>
     </el-form-item>
@@ -26,8 +22,7 @@
         v-model="form.password"
         type="password"
         show-password
-        placeholder="请输入访问密码"
-        :disabled="isLocked"
+        placeholder="可选，如果你想体验高级的功能请进行填写"
       >
         <template #prefix>
           <el-icon><Lock /></el-icon>
@@ -35,23 +30,32 @@
       </el-input>
     </el-form-item>
 
-    <el-form-item v-if="!isLocked" label="记住密码" prop="remember">
+    <el-form-item label="记住密码" prop="remember" v-if="form.password">
       <el-switch v-model="form.remember" />
     </el-form-item>
+
+    <div class="form-actions">
+      <el-button type="primary" @click="handleSave" :loading="saving">
+        保存配置
+      </el-button>
+    </div>
   </el-form>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, defineExpose } from 'vue'
+import { ref, reactive } from 'vue'
 import { Connection, Lock } from '@element-plus/icons-vue'
 import { useGMValue } from '../composables/useGMValue'
 import type { FormInstance, FormRules } from 'element-plus'
-import CryptoJS from 'crypto-js'
+import { ElMessage } from 'element-plus'
+
+const emit = defineEmits<{
+  (e: 'saved'): void
+}>()
 
 const SECRET_KEY = 'cookie-share-secret-key'
-
 const formRef = ref<FormInstance>()
-const isLocked = ref(false)
+const saving = ref(false)
 
 const { value: storedConfig } = useGMValue('cookie_share_server_config', {
   url: '',
@@ -59,25 +63,11 @@ const { value: storedConfig } = useGMValue('cookie_share_server_config', {
   remember: false
 })
 
-const decryptPassword = (ciphertext: string) => {
-  try {
-    const bytes = CryptoJS.AES.decrypt(ciphertext, SECRET_KEY)
-    return bytes.toString(CryptoJS.enc.Utf8)
-  } catch {
-    return ''
-  }
-}
-
 const form = reactive({
   serverUrl: storedConfig.value.url,
-  password: storedConfig.value.password ? decryptPassword(storedConfig.value.password) : '',
+  password: storedConfig.value.password || '',
   remember: storedConfig.value.remember
 })
-
-// 初始化锁定状态
-if (storedConfig.value.url) {
-  isLocked.value = true
-}
 
 const rules = reactive<FormRules>({
   serverUrl: [
@@ -89,47 +79,69 @@ const rules = reactive<FormRules>({
     }
   ],
   password: [
-    { required: true, message: '请输入访问密码', trigger: 'blur' },
-    { min: 6, message: '密码长度不能少于6位', trigger: 'blur' }
+    { min: 6, message: '如果填写密码，长度不能少于6位', trigger: 'blur' }
   ]
 })
 
-// 暴露给父组件的方法
-const validate = () => formRef.value?.validate()
-
-const getFormData = () => {
-  const encryptedPassword = form.remember 
-    ? CryptoJS.AES.encrypt(form.password, SECRET_KEY).toString()
-    : ''
-
-  return {
-    url: form.serverUrl.replace(/\/$/, ''),
-    password: encryptedPassword,
-    remember: form.remember
+const handleSave = async () => {
+  if (!formRef.value) return
+  
+  const valid = await formRef.value.validate()
+  if (valid) {
+    saving.value = true
+    try {
+      storedConfig.value = {
+        url: form.serverUrl.replace(/\/$/, ''),
+        password: form.password,
+        remember: form.password ? form.remember : false
+      }
+      
+      GM_setValue('cookie_share_server_config', storedConfig.value)
+      
+      ElMessage.success('配置已保存')
+      emit('saved')
+    } catch (error) {
+      ElMessage.error('保存失败')
+    } finally {
+      saving.value = false
+    }
   }
 }
-
-const resetForm = () => {
-  form.serverUrl = storedConfig.value.url
-  form.password = storedConfig.value.password ? decryptPassword(storedConfig.value.password) : ''
-  form.remember = storedConfig.value.remember
-}
-
-const setLocked = (locked: boolean) => {
-  isLocked.value = locked
-}
-
-defineExpose({
-  validate,
-  getFormData,
-  resetForm,
-  setLocked,
-  isLocked
-})
 </script>
 
 <style scoped>
 .server-form {
   margin: 20px 0;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 30px;
+}
+
+@media screen and (max-width: 768px) {
+  .server-form {
+    margin: 10px 0;
+    
+    :deep(.el-form-item__label) {
+      width: 100% !important;
+      text-align: left;
+      margin-bottom: 8px;
+    }
+    
+    .el-input {
+      font-size: 14px;
+    }
+    
+    .form-actions {
+      margin-top: 20px;
+      
+      .el-button {
+        width: 100%;
+        padding: 12px;
+      }
+    }
+  }
 }
 </style> 

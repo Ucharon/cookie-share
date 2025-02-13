@@ -7,10 +7,14 @@ import { visualizer } from 'rollup-plugin-visualizer'
 export default defineConfig({
   server: {
     port: 5174,
-    cors: true,
+    cors: {
+      origin: '*',
+      methods: 'GET,POST,PUT,DELETE',
+      allowedHeaders: 'Content-Type,X-Password'
+    },
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: 'http://your-server.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
       }
@@ -34,15 +38,10 @@ export default defineConfig({
         author: 'xuxihai123',
         match: ['*://*/*'],
         grant: [
-          'GM_xmlhttpRequest',
           'GM_cookie',
-          'GM_setValue',
+          'GM_xmlhttpRequest',
           'GM_getValue',
-          'GM_deleteValue',
-          'GM_listValues',
-          'GM_addValueChangeListener',
-          'GM_removeValueChangeListener',
-          'GM_notification'
+          'GM_setValue'
         ],
         connect: ['*']
       },
@@ -52,7 +51,6 @@ export default defineConfig({
               .concat(util.dataUrl(";window.Vue=Vue;")),
           'element-plus': cdn.jsdelivr("ElementPlus", "dist/index.full.min.js"),
           '@element-plus/icons-vue': cdn.jsdelivr("ElementPlusIconsVue", "dist/index.iife.min.js"),
-          'crypto-js': cdn.jsdelivr("CryptoJS", "crypto-js.js")
         },
         externalResource: {
           'element-plus/dist/index.css': cdn.jsdelivr()

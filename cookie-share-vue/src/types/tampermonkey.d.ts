@@ -19,17 +19,17 @@ declare function GM_notification(details: {
 }): void
 
 // Cookie 相关类型
-interface GMCookie {
+declare interface GMCookie {
   name: string
   value: string
   domain: string
   path?: string
   secure?: boolean
   sameSite?: 'Lax' | 'Strict' | 'None'
-  hostOnly?: boolean
   httpOnly?: boolean
-  session?: boolean
   expirationDate?: number
+  hostOnly?: boolean
+  storeId?: string
 }
 
 interface GMCookieDetails {
@@ -39,54 +39,35 @@ interface GMCookieDetails {
   path?: string
 }
 
-declare namespace GM_cookie {
-  function list(details: GMCookieDetails, callback: (cookies: GMCookie[]) => void): void
-  function set(details: GMCookie, callback?: () => void): void
-  function remove(details: GMCookieDetails, callback?: () => void): void
+declare interface GM_cookie {
+  list: (
+    details: { domain?: string; name?: string; path?: string },
+    callback: (cookies: GMCookie[]) => void
+  ) => void;
+  set: (
+    details: GMCookie,
+    callback: (success: boolean, error?: any) => void
+  ) => void;
+  delete: (
+    details: { name: string; domain: string; path?: string },
+    callback: (success: boolean) => void
+  ) => void;
 }
 
 // XMLHttpRequest 相关类型
-interface GMXMLHttpRequestDetails {
+declare interface GMXMLHttpRequestDetails {
   method?: string
   url: string
-  headers?: { [key: string]: string }
+  headers?: Record<string, string>
   data?: string
-  binary?: boolean
   timeout?: number
-  context?: any
-  responseType?: string
-  overrideMimeType?: string
   anonymous?: boolean
-  fetch?: boolean
-  username?: string
-  password?: string
-  onabort?: (response: GMXMLHttpRequestResponse) => void
-  onerror?: (response: GMXMLHttpRequestResponse) => void
-  onload?: (response: GMXMLHttpRequestResponse) => void
-  onprogress?: (response: GMXMLHttpRequestProgressResponse) => void
-  ontimeout?: (response: GMXMLHttpRequestResponse) => void
-  onreadystatechange?: (response: GMXMLHttpRequestResponse) => void
-}
-
-interface GMXMLHttpRequestResponse {
-  finalUrl: string
-  readyState: number
-  status: number
-  statusText: string
-  responseHeaders: string
-  response: any
-  responseText: string
-  responseXML: Document | null
-  context: any
-}
-
-interface GMXMLHttpRequestProgressResponse extends GMXMLHttpRequestResponse {
-  done: number
-  lengthComputable: boolean
-  loaded: number
-  position: number
-  total: number
-  totalSize: number
+  crossDomain?: boolean
+  onload?: (response: any) => void
+  onerror?: (error: any) => void
+  ontimeout?: () => void
+  responseType?: 'json' | 'text' | 'blob' | 'arraybuffer' | 'document'
+  credentials?: 'omit' | 'same-origin' | 'include'
 }
 
 declare function GM_xmlhttpRequest(details: GMXMLHttpRequestDetails): { abort: () => void }
@@ -96,6 +77,8 @@ declare interface Window {
   GM_getValue: typeof GM_getValue
   GM_deleteValue: typeof GM_deleteValue
   GM_registerMenuCommand: typeof GM_registerMenuCommand
+  GM_cookie: GM_cookie
+  GM_xmlhttpRequest: (details: GMXMLHttpRequestDetails) => { abort: () => void }
 }
 
 declare function GM_setValue<T>(name: string, value: T): void
@@ -105,4 +88,15 @@ declare function GM_registerMenuCommand(
   name: string,
   onClick: () => void,
   accessKey?: string
-): void 
+): void
+
+declare function GM_xmlhttpRequest(options: {
+  method: string;
+  url: string;
+  headers?: Record<string, string>;
+  data?: string;
+  timeout?: number;
+}): Promise<{
+  status: number;
+  responseText: string;
+}>; 

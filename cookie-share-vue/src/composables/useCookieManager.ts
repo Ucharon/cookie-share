@@ -14,7 +14,7 @@ interface Cookie {
 export function useCookieManager() {
   const getAll = (): Promise<Cookie[]> => {
     return new Promise((resolve) => {
-      GM_cookie.list({}, function (cookies) {
+      GM_cookie.list({}, (cookies) => {
         resolve(
           cookies.map((cookie) => ({
             name: cookie.name,
@@ -22,10 +22,9 @@ export function useCookieManager() {
             domain: cookie.domain,
             path: cookie.path || '/',
             secure: cookie.secure,
-            sameSite: 'Lax',
+            sameSite: cookie.sameSite || 'Lax',
             hostOnly: cookie.hostOnly,
             httpOnly: cookie.httpOnly,
-            session: cookie.session,
             expirationDate: cookie.expirationDate,
           }))
         )
@@ -34,7 +33,7 @@ export function useCookieManager() {
   }
 
   const set = (cookie: Cookie): Promise<void> => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       GM_cookie.set(
         {
           name: cookie.name,
@@ -43,16 +42,23 @@ export function useCookieManager() {
           path: cookie.path || '/',
           secure: cookie.secure,
           httpOnly: cookie.httpOnly || false,
-          expirationDate: cookie.expirationDate || undefined,
+          sameSite: cookie.sameSite || 'Lax',
+          expirationDate: cookie.expirationDate,
         },
-        resolve
+        (success, error) => {
+          if (success) {
+            resolve()
+          } else {
+            reject(error)
+          }
+        }
       )
     })
   }
 
   const clearAll = (): Promise<void> => {
     return new Promise((resolve) => {
-      GM_cookie.list({}, function (cookies) {
+      GM_cookie.list({}, (cookies) => {
         let deletedCount = 0
         const totalCookies = cookies.length
 
@@ -62,11 +68,11 @@ export function useCookieManager() {
         }
 
         cookies.forEach((cookie) => {
-          GM_cookie.remove(
+          GM_cookie.delete(
             {
               name: cookie.name,
               domain: cookie.domain,
-              path: cookie.path,
+              path: cookie.path || '/',
             },
             () => {
               deletedCount++
