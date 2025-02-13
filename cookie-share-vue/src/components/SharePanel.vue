@@ -137,12 +137,18 @@ import { Key, Setting, RefreshRight, Download, Upload, List, Loading } from '@el
 import { useGMValue } from '../composables/useGMValue'
 import { useWindowSize } from '@vueuse/core'
 
+const props = defineProps<{
+  visible: boolean
+}>()
+
+const dialogVisible = ref(props.visible)
+
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'config'): void
+  (e: 'update:visible', value: boolean): void
 }>()
 
-const dialogVisible = ref(true)
 const cookieId = ref('')
 const sending = ref(false)
 const receiving = ref(false)
@@ -202,6 +208,7 @@ const loadCookieList = async () => {
   loading.value = true
   try {
     const currentHost = window.location.hostname.split('.').slice(-2).join('.')
+    const baseDomain = `.${currentHost}`
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json'
@@ -265,8 +272,7 @@ const handleClose = () => {
   cookieId.value = ''
   cookieList.value = []
   lastUpdateTime.value = undefined
-  dialogVisible.value = false
-  emit('close')
+  emit('update:visible', false)
 }
 
 const handleConfig = () => {
@@ -288,49 +294,62 @@ const handleSend = async () => {
     }
 
     const currentHost = window.location.hostname.split('.').slice(-2).join('.')
-    
-    const response = await GM_xmlhttpRequest({
-      method: 'POST',
-      url: `${serverConfig.value.url}/send-cookies`,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...(serverConfig.value.password ? {
-          'X-Admin-Password': serverConfig.value.password
-        } : {})
-      },
-      crossDomain: true,
-      anonymous: true,
-      credentials: 'omit',
-      data: JSON.stringify({
-        id: cookieId.value,
-        url: `https://${currentHost}`,
-        cookies: cookies.map(cookie => ({
-          name: cookie.name,
-          value: cookie.value,
-          domain: cookie.domain,
-          path: cookie.path || '/',
-          secure: cookie.secure,
-          sameSite: cookie.sameSite || 'Lax',
-          hostOnly: cookie.hostOnly,
-          httpOnly: cookie.httpOnly,
-          session: cookie.session,
-          expirationDate: cookie.expirationDate,
-        }))
-      }),
-      responseType: 'json',
-      timeout: 10000
-    })
+    const baseDomain = `.${currentHost}`
+
+    const requestData = {
+      id: cookieId.value,
+      url: `https://${currentHost}`,
+      cookies: cookies.map(cookie => ({
+        name: cookie.name,
+        value: cookie.value,
+        domain: baseDomain,
+        path: cookie.path || '/',
+        secure: cookie.secure,
+        sameSite: 'Lax',
+        hostOnly: false,
+        httpOnly: cookie.httpOnly,
+        session: cookie.session,
+        expirationDate: cookie.expirationDate,
+      }))
+    }
+
+    const response = await new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method: "POST",
+        url: `${serverConfig.value.url}/send-cookies`,
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          ...(serverConfig.value.password ? {
+            "X-Admin-Password": serverConfig.value.password
+          } : {})
+        },
+        data: JSON.stringify(requestData),
+        onload: resolve,
+        onerror: reject,
+        ontimeout: () => reject(new Error('请求超时'))
+      })
+    }) as any
+
+    console.log('响应状态:', response.status)
+    console.log('响应内容:', response.responseText)
 
     if (response.status >= 200 && response.status < 300) {
-      if (!response.response?.success) {
-        throw new Error(response.response?.message || '服务器返回错误')
+      const data = JSON.parse(response.responseText)
+      if (data?.success) {
+        ElMessage.success(data.message || 'Cookie分享成功')
+        if (autoRefresh.value) {
+          await loadCookieList()
+        }
+      } else {
+        throw new Error(data?.message || '服务器返回错误')
       }
-      ElMessage.success('Cookie分享成功')
     } else {
-      throw new Error(response.response?.message || '请求失败')
+      const errorData = response.responseText ? JSON.parse(response.responseText) : {}
+      throw new Error(errorData?.message || `HTTP错误 ${response.status}`)
     }
   } catch (error) {
+    console.error('分享失败完整错误:', error)
     ElMessage.error(`分享失败: ${error.message}`)
   } finally {
     sending.value = false
@@ -519,6 +538,10 @@ const handleReceive = async () => {
 const handleRefresh = async () => {
   await loadCookieList()
 }
+
+watch(() => props.visible, (newVal) => {
+  dialogVisible.value = newVal
+})
 
 watch(serverConfig, (newConfig) => {
   if (newConfig.url) {

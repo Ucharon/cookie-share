@@ -3,7 +3,7 @@
     ref="formRef"
     :model="form"
     :rules="rules"
-    label-width="100px"
+    :label-width="isMobile ? 'auto' : '100px'"
     class="server-form"
   >
     <el-form-item label="服务器地址" prop="serverUrl">
@@ -43,14 +43,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { Connection, Lock } from '@element-plus/icons-vue'
 import { useGMValue } from '../composables/useGMValue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage } from 'element-plus'
+import { useWindowSize } from '@vueuse/core'
 
 const emit = defineEmits<{
   (e: 'saved'): void
+  (e: 'close'): void
 }>()
 
 const SECRET_KEY = 'cookie-share-secret-key'
@@ -79,9 +81,21 @@ const rules = reactive<FormRules>({
     }
   ],
   password: [
-    { min: 6, message: '如果填写密码，长度不能少于6位', trigger: 'blur' }
+    { 
+      validator: (rule, value, callback) => {
+        if (value && value.length < 6) {
+          callback(new Error('管理员密码长度不能少于6位'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur'
+    }
   ]
 })
+
+const { width: windowWidth } = useWindowSize()
+const isMobile = computed(() => windowWidth.value < 768)
 
 const handleSave = async () => {
   if (!formRef.value) return
@@ -120,27 +134,72 @@ const handleSave = async () => {
   margin-top: 30px;
 }
 
+/* 移动端适配样式 */
 @media screen and (max-width: 768px) {
   .server-form {
     margin: 10px 0;
     
+    :deep(.el-form-item) {
+      margin-bottom: 16px;
+    }
+    
     :deep(.el-form-item__label) {
-      width: 100% !important;
+      width: auto !important;
       text-align: left;
       margin-bottom: 8px;
+      padding: 0;
+      line-height: 1.4;
+      float: none;
+      display: block;
     }
     
-    .el-input {
+    :deep(.el-form-item__content) {
+      margin-left: 0 !important;
+      width: 100% !important;
+    }
+    
+    :deep(.el-input) {
       font-size: 14px;
+      width: 100%;
     }
     
-    .form-actions {
-      margin-top: 20px;
-      
-      .el-button {
-        width: 100%;
-        padding: 12px;
-      }
+    :deep(.el-input__wrapper) {
+      padding: 8px 12px;
+      width: 100%;
+    }
+    
+    :deep(.el-input__inner) {
+      height: 36px;
+      line-height: 36px;
+    }
+    
+    :deep(.el-switch) {
+      margin-top: 4px;
+    }
+  }
+
+  .form-actions {
+    margin-top: 20px;
+    padding: 0 12px;
+    
+    .el-button {
+      width: 100%;
+      padding: 12px;
+      height: auto;
+      font-size: 15px;
+    }
+  }
+}
+
+/* 优化暗色模式下的表单样式 */
+@media (prefers-color-scheme: dark) {
+  .server-form {
+    :deep(.el-input__wrapper) {
+      background-color: var(--el-input-bg-color, var(--el-fill-color-blank));
+    }
+    
+    :deep(.el-form-item__label) {
+      color: var(--el-text-color-regular);
     }
   }
 }

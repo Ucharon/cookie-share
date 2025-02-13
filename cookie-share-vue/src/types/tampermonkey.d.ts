@@ -30,6 +30,7 @@ declare interface GMCookie {
   expirationDate?: number
   hostOnly?: boolean
   storeId?: string
+  session?: boolean
 }
 
 interface GMCookieDetails {
@@ -99,4 +100,27 @@ declare function GM_xmlhttpRequest(options: {
 }): Promise<{
   status: number;
   responseText: string;
-}>; 
+}>;
+
+declare interface GMXMLHttpRequestResponse {
+  readonly status: number;
+  readonly statusText: string;
+  readonly responseHeaders: string;
+  readonly responseText: string;
+  readonly response: any;
+  readonly finalUrl: string;
+}
+
+declare interface GMXMLHttpRequestProgress extends GMXMLHttpRequestResponse {
+  readonly lengthComputable: boolean;
+  readonly loaded: number;
+  readonly total: number;
+}
+
+declare interface GMXMLHttpRequestContext {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  data: string;
+  timeout: number;
+} 

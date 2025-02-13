@@ -22,9 +22,12 @@ export function useCookieManager() {
             domain: cookie.domain,
             path: cookie.path || '/',
             secure: cookie.secure,
-            sameSite: cookie.sameSite || 'Lax',
+            sameSite: 'Lax',
             hostOnly: cookie.hostOnly,
             httpOnly: cookie.httpOnly,
+            session: 'session' in cookie 
+              ? cookie.session 
+              : (cookie.expirationDate === undefined || cookie.expirationDate === 0),
             expirationDate: cookie.expirationDate,
           }))
         )
@@ -38,11 +41,11 @@ export function useCookieManager() {
         {
           name: cookie.name,
           value: cookie.value,
-          domain: cookie.domain,
+          domain: `.${cookie.domain.split('.').slice(-2).join('.')}`,
           path: cookie.path || '/',
           secure: cookie.secure,
           httpOnly: cookie.httpOnly || false,
-          sameSite: cookie.sameSite || 'Lax',
+          sameSite: 'Lax',
           expirationDate: cookie.expirationDate,
         },
         (success, error) => {

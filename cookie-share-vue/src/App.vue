@@ -37,10 +37,8 @@ const handlePanelClose = () => {
 }
 
 const handleConfigClose = () => {
-  // 如果未配置服务器，不允许关闭配置窗口
-  if (serverConfig.value.url) {
-    showConfig.value = false
-  }
+  // 无论是否配置都允许关闭
+  showConfig.value = false
 }
 </script>
 
@@ -55,19 +53,19 @@ const handleConfigClose = () => {
     v-model="showConfig"
     title="服务器配置"
     :width="isMobile ? '90%' : '500px'"
-    :close-on-click-modal="!!serverConfig.url"
-    :show-close="!!serverConfig.url"
-    :close-on-press-escape="!!serverConfig.url"
+    :close-on-click-modal="true"
+    :show-close="true"
+    :close-on-press-escape="true"
     @close="handleConfigClose"
     class="mobile-optimized-dialog"
+    destroy-on-close
   >
     <ServerConfig @saved="handleConfigSaved" />
   </el-dialog>
 
   <!-- Cookie操作面板 -->
   <SharePanel
-    v-if="showPanel"
-    @close="handlePanelClose"
+    v-model:visible="showPanel"
     @config="showConfig = true"
   />
 </template>
