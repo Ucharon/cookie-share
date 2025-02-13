@@ -89,4 +89,20 @@ interface GMXMLHttpRequestProgressResponse extends GMXMLHttpRequestResponse {
   totalSize: number
 }
 
-declare function GM_xmlhttpRequest(details: GMXMLHttpRequestDetails): { abort: () => void } 
+declare function GM_xmlhttpRequest(details: GMXMLHttpRequestDetails): { abort: () => void }
+
+declare interface Window {
+  GM_setValue: typeof GM_setValue
+  GM_getValue: typeof GM_getValue
+  GM_deleteValue: typeof GM_deleteValue
+  GM_registerMenuCommand: typeof GM_registerMenuCommand
+}
+
+declare function GM_setValue<T>(name: string, value: T): void
+declare function GM_getValue<T>(name: string, defaultValue: T): T
+declare function GM_deleteValue(name: string): void
+declare function GM_registerMenuCommand(
+  name: string,
+  onClick: () => void,
+  accessKey?: string
+): void 

@@ -1,8 +1,0 @@
-{
-  "devDependencies": {
-    "@tsconfig/node18": "^18.2.4",
-    "@types/node": "^22.13.1",
-    "@types/tampermonkey": "^5.0.4",
-    "@vue/tsconfig": "^0.7.0"
-  }
-}

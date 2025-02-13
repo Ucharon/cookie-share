@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import monkey from 'vite-plugin-monkey'
+import monkey, { cdn, util } from 'vite-plugin-monkey'
+import { visualizer } from 'rollup-plugin-visualizer'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -17,6 +18,12 @@ export default defineConfig({
   },
   plugins: [
     vue(),
+    visualizer({
+      open: true,
+      gzipSize: true,
+      brotliSize: true,
+      filename: 'dist/stats.html'
+    }),
     monkey({
       entry: 'src/main.ts',
       userscript: {
@@ -41,18 +48,14 @@ export default defineConfig({
       },
       build: {
         externalGlobals: {
-          vue: ['Vue', 'https://unpkg.com/vue@3/dist/vue.global.js'],
-          'element-plus': [
-            'ElementPlus',
-            'https://unpkg.com/element-plus@2.4.4/dist/index.full.js'
-          ],
-          '@element-plus/icons-vue': [
-            'ElementPlusIconsVue',
-            'https://unpkg.com/@element-plus/icons-vue@2.3.1/dist/index.iife.min.js'
-          ]
+          vue: cdn.jsdelivr("Vue", "dist/vue.global.prod.js")
+              .concat(util.dataUrl(";window.Vue=Vue;")),
+          'element-plus': cdn.jsdelivr("ElementPlus", "dist/index.full.min.js"),
+          '@element-plus/icons-vue': cdn.jsdelivr("ElementPlusIconsVue", "dist/index.iife.min.js"),
+          'crypto-js': cdn.jsdelivr("CryptoJS", "crypto-js.js")
         },
         externalResource: {
-          'element-plus/dist/index.css': 'https://unpkg.com/element-plus@2.4.4/dist/index.css'
+          'element-plus/dist/index.css': cdn.jsdelivr()
         }
       }
     })

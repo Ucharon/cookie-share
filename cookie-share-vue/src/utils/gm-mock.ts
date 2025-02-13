@@ -1,24 +1,50 @@
-// 存储模拟
-const store = new Map<string, any>()
-
-// GM_getValue 的模拟实现
-window.GM_getValue = <T>(key: string, defaultValue: T): T => {
-  return store.has(key) ? store.get(key) : defaultValue
+// 新增文件：模拟油猴API的本地存储实现
+interface GMValueStorage {
+  [key: string]: any
 }
 
-// GM_setValue 的模拟实现
-window.GM_setValue = (key: string, value: any): void => {
-  store.set(key, value)
+const GM_MOCK_STORAGE_KEY = '__GM_MOCK_STORAGE__'
+
+function getGMStorage(): GMValueStorage {
+  const storage = localStorage.getItem(GM_MOCK_STORAGE_KEY)
+  return storage ? JSON.parse(storage) : {}
 }
 
-// GM_deleteValue 的模拟实现
-window.GM_deleteValue = (key: string): void => {
-  store.delete(key)
+function updateGMStorage(storage: GMValueStorage) {
+  localStorage.setItem(GM_MOCK_STORAGE_KEY, JSON.stringify(storage))
+}
+
+// 模拟GM_setValue
+const GM_setValue = (name: string, value: any) => {
+  const storage = getGMStorage()
+  storage[name] = value
+  updateGMStorage(storage)
+}
+
+// 模拟GM_getValue
+const GM_getValue = <T>(name: string, defaultValue: T): T => {
+  const storage = getGMStorage()
+  return storage[name] ?? defaultValue
+}
+
+// 模拟GM_deleteValue
+const GM_deleteValue = (name: string) => {
+  const storage = getGMStorage()
+  delete storage[name]
+  updateGMStorage(storage)
+}
+
+// 挂载到window对象
+if (import.meta.env.DEV) {
+  window.GM_setValue = GM_setValue
+  window.GM_getValue = GM_getValue
+  window.GM_deleteValue = GM_deleteValue
+  window.GM_registerMenuCommand = () => {} // 空实现
 }
 
 // GM_listValues 的模拟实现
 window.GM_listValues = (): string[] => {
-  return Array.from(store.keys())
+  return Array.from(getGMStorage().keys())
 }
 
 // GM_cookie 的模拟实现
