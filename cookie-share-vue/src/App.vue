@@ -5,11 +5,12 @@ import SharePanel from './components/SharePanel.vue'
 import ServerConfig from './components/ServerConfig.vue'
 import { useGMValue } from './composables/useGMValue'
 import { useWindowSize } from '@vueuse/core'
+import type { ServerConfig as ServerConfigType } from './types/cookie'
 
 const showPanel = ref(false)
 const showConfig = ref(false)
 const { value: autoHideFullscreen } = useGMValue('cookie_share_auto_hide_fullscreen', true)
-const { value: serverConfig } = useGMValue('cookie_share_server_config', {
+const { value: serverConfig } = useGMValue<ServerConfigType>('cookie_share_server_config', {
   url: '',
   password: '',
   remember: false
@@ -40,12 +41,24 @@ const handleConfigClose = () => {
   // 无论是否配置都允许关闭
   showConfig.value = false
 }
+
+const handleQuickListUpdate = () => {
+  // 通知 FloatingButton 组件更新列表
+  if (floatingButtonRef.value) {
+    floatingButtonRef.value.loadCookieList()
+  }
+}
+
+const handleOpenMainPanel = () => {
+  checkServerConfig()
+}
 </script>
 
 <template>
   <FloatingButton
     :auto-hide-fullscreen="autoHideFullscreen"
     @click="checkServerConfig"
+    @open-main-panel="handleOpenMainPanel"
   />
   
   <!-- 服务器配置对话框 -->
@@ -67,6 +80,7 @@ const handleConfigClose = () => {
   <SharePanel
     v-model:visible="showPanel"
     @config="showConfig = true"
+    @quick-list-update="handleQuickListUpdate"
   />
 </template>
 

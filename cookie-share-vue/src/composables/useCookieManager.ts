@@ -41,7 +41,9 @@ export function useCookieManager() {
         {
           name: cookie.name,
           value: cookie.value,
-          domain: `.${cookie.domain.split('.').slice(-2).join('.')}`,
+          domain: cookie.domain.startsWith('.') 
+            ? cookie.domain 
+            : `.${cookie.domain.replace(/^\.?/, '').split('.').slice(-2).join('.')}`,
           path: cookie.path || '/',
           secure: cookie.secure,
           httpOnly: cookie.httpOnly || false,

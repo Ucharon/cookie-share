@@ -54,6 +54,16 @@ const GM_deleteValue = (name: string) => {
   updateGMStorage(storage)
 }
 
+// 模拟 GM_removeValueChangeListener
+window.GM_removeValueChangeListener = (listenerId: number) => {
+  Object.keys(valueChangeListeners).forEach(key => {
+    const listeners = valueChangeListeners[key]
+    if (listeners && listenerId < listeners.length) {
+      listeners.splice(listenerId, 1)
+    }
+  })
+}
+
 // 挂载到window对象
 if (import.meta.env.DEV) {
   window.GM_setValue = GM_setValue

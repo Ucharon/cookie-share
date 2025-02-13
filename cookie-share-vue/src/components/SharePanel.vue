@@ -59,7 +59,7 @@
           default-first-option
           placeholder="输入Cookie ID"
           class="cookie-input"
-          :loading="loading"
+          :loading="cookieLoading"
           @visible-change="updateDropdownWidth"
           popper-class="cookie-select-dropdown"
         >
@@ -67,14 +67,35 @@
             <el-icon><Key /></el-icon>
           </template>
           <el-option
-            v-for="cookie in cookieList"
+            v-for="cookie in sortedCookies"
             :key="cookie.id"
             :label="cookie.id"
             :value="cookie.id"
+            :class="{ 'imported-cookie': isImported(cookie.id) }"
           >
             <div class="cookie-item-content">
               <span class="cookie-id">{{ cookie.id }}</span>
               <span class="cookie-url">{{ cookie.url }}</span>
+              <div class="cookie-status">
+                <el-icon v-if="isImported(cookie.id)" class="imported-icon">
+                  <CircleCheck />
+                </el-icon>
+                <span v-else class="unimported-text">未导入</span>
+                <span v-if="getLastUsed(cookie.id)" class="last-used">
+                  {{ formatTime(getLastUsed(cookie.id)) }}
+                </span>
+              </div>
+              <el-button
+                type="primary"
+                link
+                size="small"
+                @click.stop="toggleQuickSave(cookie)"
+              >
+                <el-icon>
+                  <StarFilled v-if="isImported(cookie.id)" class="star-filled" />
+                  <Star v-else class="star-outline" />
+                </el-icon>
+              </el-button>
             </div>
           </el-option>
         </el-select>
@@ -124,8 +145,8 @@
       </div>
     </div>
 
-    <div class="update-time" v-if="lastUpdateTime && serverConfig.password">
-      最后更新：{{ lastUpdateTime.toLocaleTimeString() }}
+    <div class="update-time" v-if="cookieLastUpdateTime && serverConfig.password">
+      最后更新：{{ cookieLastUpdateTime.toLocaleTimeString() }}
     </div>
   </el-dialog>
 </template>
@@ -133,10 +154,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Key, Setting, RefreshRight, Download, Upload, List, Loading } from '@element-plus/icons-vue'
+import { Key, Setting, RefreshRight, Download, Upload, List, Loading, StarFilled, CircleCheck, Star } from '@element-plus/icons-vue'
 import { useGMValue } from '../composables/useGMValue'
 import { useWindowSize } from '@vueuse/core'
 import { debounce } from 'lodash-es'
+import { useCookieOperations } from '../composables/useCookieOperations'
+import { useLocalCookies } from '../composables/useLocalCookies'
+import type { Cookie, CookieListResponse, GMXMLHttpRequestResponse } from '../types/cookie'
 
 const props = defineProps<{
   visible: boolean
@@ -148,6 +172,7 @@ const emit = defineEmits<{
   (e: 'close'): void
   (e: 'config'): void
   (e: 'update:visible', value: boolean): void
+  (e: 'quick-list-update'): void
 }>()
 
 const cookieId = ref('')
@@ -170,10 +195,6 @@ const isOperational = computed(() => {
   return cookieId.value.trim().length > 0
 })
 
-const loading = ref(false)
-const cookieList = ref<Cookie[]>([])
-const lastUpdateTime = ref<Date>()
-
 const selectRef = ref<HTMLElement>()
 
 const { width: windowWidth } = useWindowSize()
@@ -187,6 +208,49 @@ const updateDropdownWidth = debounce(async () => {
   }
 }, 100)
 
+const {
+  loading: cookieLoading,
+  receiving: cookieReceiving,
+  cookieList: availableCookies,
+  lastUpdateTime: cookieLastUpdateTime,
+  loadCookieList,
+  receiveCookie
+} = useCookieOperations()
+
+const { addCookie, updateLastUsed, savedCookies, removeCookie } = useLocalCookies()
+
+const isImported = (cookieId: string) => {
+  return savedCookies.value.some(c => c.id === cookieId)
+}
+
+const getLastUsed = (cookieId: string) => {
+  const cookie = savedCookies.value.find(c => c.id === cookieId)
+  return cookie?.lastUsed
+}
+
+const formatTime = (timestamp: number) => {
+  const date = new Date(timestamp)
+  return `${date.getMonth()+1}/${date.getDate()} ${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`
+}
+
+const sortedCookies = computed(() => {
+  return [...availableCookies.value].sort((a, b) => {
+    const aImported = isImported(a.id)
+    const bImported = isImported(b.id)
+    
+    if (aImported && !bImported) return -1
+    if (!aImported && bImported) return 1
+    
+    if (aImported && bImported) {
+      const aTime = getLastUsed(a.id) || 0
+      const bTime = getLastUsed(b.id) || 0
+      return bTime - aTime
+    }
+    
+    return 0
+  })
+})
+
 onMounted(() => {
   loadCookieList()
   updateDropdownWidth()
@@ -197,94 +261,11 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateDropdownWidth)
 })
 
-interface Cookie {
-  id: string
-  url: string
-}
-
-interface CookieListResponse {
-  success: boolean
-  cookies: Cookie[]
-}
-
-interface GMXMLHttpRequestResponse {
-  status: number;
-  statusText: string;
-  response: any;
-  responseText: string;
-}
-
-const loadCookieList = async () => {
-  if (!serverConfig.value?.url || loading.value) return
-  
-  loading.value = true
-  try {
-    const currentHost = window.location.hostname.split('.').slice(-2).join('.')
-    const baseDomain = `.${currentHost}`
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
-    }
-    
-    if (serverConfig.value.password) {
-      headers['X-Admin-Password'] = serverConfig.value.password
-    }
-
-    const response = await new Promise<GMXMLHttpRequestResponse>((resolve, reject) => {
-      GM_xmlhttpRequest({
-        method: 'GET',
-        url: `${serverConfig.value.url}/admin/list-cookies-by-host/${encodeURIComponent(currentHost)}`,
-        headers,
-        crossDomain: true,
-        anonymous: true,
-        credentials: 'omit',
-        responseType: 'json',
-        timeout: 10000,
-        onload: (response) => {
-          console.log('收到Cookie列表响应:', {
-            status: response.status,
-            statusText: response.statusText,
-            response: response.response,
-            responseText: response.responseText
-          })
-          resolve(response)
-        },
-        onerror: (error) => {
-          console.error('请求Cookie列表错误:', error)
-          reject(new Error('网络请求失败'))
-        },
-        ontimeout: () => {
-          reject(new Error('请求超时'))
-        }
-      })
-    })
-
-    const data = response.response as CookieListResponse
-    if (response.status === 200 && data?.success) {
-      cookieList.value = data.cookies
-      lastUpdateTime.value = new Date()
-    } else {
-      const errorMsg = (data as any)?.message || response.statusText || `HTTP错误 ${response.status}`
-      throw new Error(errorMsg)
-    }
-  } catch (error: unknown) {
-    console.error('Cookie列表加载失败详情:', {
-      error,
-      response: (error as any)?.response,
-      status: (error as any)?.status
-    })
-    ElMessage.error(`加载失败: ${error instanceof Error ? error.message : '未知错误'}`)
-    cookieList.value = []
-  } finally {
-    loading.value = false
-  }
-}
-
 const handleClose = () => {
   cookieId.value = ''
-  cookieList.value = []
-  lastUpdateTime.value = undefined
-  loading.value = false
+  availableCookies.value = []
+  cookieLastUpdateTime.value = undefined
+  cookieLoading.value = false
   emit('update:visible', false)
 }
 
@@ -370,199 +351,27 @@ const handleSend = async () => {
 }
 
 const handleReceive = async () => {
-  if (!serverConfig.value) return
-  
-  receiving.value = true
-  try {
-    console.log('开始获取Cookie...', {
-      url: `${serverConfig.value.url}/receive-cookies/${cookieId.value}`,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...(serverConfig.value.password ? {
-          'X-Admin-Password': serverConfig.value.password
-        } : {})
-      }
-    })
-
-    const response = await new Promise((resolve, reject) => {
-      GM_xmlhttpRequest({
-        method: 'GET',
-        url: `${serverConfig.value.url}/receive-cookies/${cookieId.value}`,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...(serverConfig.value.password ? {
-            'X-Admin-Password': serverConfig.value.password
-          } : {})
-        },
-        crossDomain: true,
-        anonymous: true,
-        credentials: 'omit',
-        responseType: 'json',
-        timeout: 10000,
-        onload: (response) => {
-          console.log('收到响应:', {
-            status: response.status,
-            statusText: response.statusText,
-            response: response.response,
-            responseText: response.responseText
-          })
-          resolve(response)
-        },
-        onerror: (error) => {
-          console.error('请求错误:', error)
-          reject(new Error('网络请求失败'))
-        },
-        ontimeout: () => {
-          reject(new Error('请求超时'))
-        }
-      })
-    })
-
-    if (response.status >= 200 && response.status < 300) {
-      console.log('服务器响应:', response.response)
-      
-      if (!response.response?.success || !Array.isArray(response.response.cookies)) {
-        throw new Error('服务器返回数据格式错误')
-      }
-
-      if (!response.response.cookies.length) {
-        throw new Error('没有可导入的Cookie')
-      }
-
-      console.log('开始清除现有cookies...')
-      // 清除现有的 cookies
-      await new Promise((resolve) => {
-        (window as any).GM_cookie.list({}, (cookies: any[]) => {
-          const deletePromises = cookies.map(cookie => 
-            new Promise<void>((resolveDelete) => {
-              // 跳过特殊cookie
-              if (cookie.name === 'XSRF-TOKEN') {
-                console.warn('跳过删除受保护的XSRF-TOKEN')
-                resolveDelete()
-                return
-              }
-              
-              (window as any).GM_cookie.delete({
-                name: cookie.name,
-                domain: cookie.domain,
-                path: cookie.path || '/'
-              }, (success: boolean) => {
-                if (!success) {
-                  console.error('删除cookie失败:', cookie.name, '可能受保护')
-                }
-                resolveDelete()
-              })
-            })
-          )
-          Promise.all(deletePromises).then(resolve)
-        })
-      })
-
-      console.log('开始设置新cookies...')
-      let importedCount = 0
-      for (const cookie of response.response.cookies) {
-        if (cookie?.name && cookie?.value) {
-          try {
-            console.log('准备设置cookie:', JSON.stringify(cookie, null, 2))
-            await new Promise((resolve, reject) => {
-              (window as any).GM_cookie.set({
-                name: cookie.name,
-                value: cookie.value,
-                domain: cookie.domain,
-                path: cookie.path || '/',
-                secure: cookie.secure,
-                httpOnly: cookie.httpOnly,
-                sameSite: cookie.sameSite || 'Lax',
-                expirationDate: cookie.expirationDate
-              }, (setCookie: any, error: any) => {
-                if (error) {
-                  console.error('设置cookie失败:', cookie.name, '原因:', error)
-                  if (cookie.name === 'XSRF-TOKEN') {
-                    console.warn('跳过设置受保护的XSRF-TOKEN')
-                    resolve()
-                    return
-                  }
-                  reject(error)
-                } else {
-                  console.log('成功设置cookie:', cookie.name, '详情:', JSON.stringify(setCookie, null, 2))
-                  try {
-                    (window as any).GM_cookie.list({ 
-                      domain: cookie.domain,
-                      name: cookie.name 
-                    }, (currentCookies: any[]) => {
-                      console.log('验证结果:', {
-                        name: cookie.name,
-                        exists: currentCookies.length > 0
-                      })
-                    })
-                  } catch (e) {
-                    console.error('验证cookie时出错:', e)
-                  }
-                  resolve()
-                }
-              })
-            })
-            importedCount++
-          } catch (error) {
-            console.error('设置cookie出错:', cookie.name, error)
-          }
-        }
-      }
-
-      console.log('导入完成，总计:', importedCount)
-      if (importedCount === 0) {
-        throw new Error('没有可导入的Cookie')
-      }
-
-      if (autoRefresh.value) {
-        ElMessage.success(`成功导入${importedCount}个Cookie，页面即将刷新`)
-        setTimeout(() => window.location.reload(), 1000)
-      } else {
-        ElMessage.success(`成功导入${importedCount}个Cookie`)
-      }
-
-      // 设置后立即验证
-      console.log('当前存储的cookies:', response.response.cookies.map(c => ({
-        name: c.name,
-        domain: c.domain,
-        path: c.path,
-        value: c.value.slice(0, 10) + '...',
-        secure: c.secure,
-        httpOnly: c.httpOnly
-      })))
-    } else {
-      console.error('HTTP错误:', {
-        status: response.status,
-        statusText: response.statusText,
-        response: response.response,
-        responseText: response.responseText
-      })
-      throw new Error(
-        response.response?.message || 
-        response.statusText || 
-        `HTTP错误 ${response.status}`
-      )
-    }
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : '未知错误'
-    const errorStack = error instanceof Error ? error.stack : undefined
-    
-    console.error('整体错误:', {
-      error,
-      message: errorMessage,
-      stack: errorStack
-    })
-    
-    ElMessage.error(`获取失败: ${errorMessage}`)
-  } finally {
-    receiving.value = false
+  const success = await receiveCookie(cookieId.value)
+  if (success && autoRefresh.value) {
+    const { updateLastUsed } = useLocalCookies()
+    updateLastUsed(cookieId.value)
+    setTimeout(() => window.location.reload(), 1000)
   }
 }
 
 const handleRefresh = async () => {
   await loadCookieList()
+}
+
+const toggleQuickSave = (cookie: Cookie) => {
+  if (isImported(cookie.id)) {
+    removeCookie(cookie.id)
+    ElMessage.success('已从快捷导入移除')
+  } else {
+    addCookie(cookie)
+    ElMessage.success('已添加到快捷导入')
+  }
+  emit('quick-list-update')
 }
 
 watch(() => props.visible, (newVal) => {
@@ -876,5 +685,53 @@ watch(serverConfig, (newConfig) => {
 
 .refresh-btn:hover {
   transform: translateY(-1px);
+}
+
+.cookie-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.imported-icon {
+  color: var(--el-color-success);
+  font-size: 14px;
+}
+
+.unimported-text {
+  color: var(--el-text-color-secondary);
+}
+
+.last-used {
+  color: var(--el-text-color-placeholder);
+  font-size: 11px;
+}
+
+:deep(.imported-cookie) {
+  background-color: var(--el-color-success-light-9);
+  
+  &:hover {
+    background-color: var(--el-color-success-light-8);
+  }
+  
+  .cookie-id {
+    color: var(--el-color-success);
+  }
+}
+
+.star-filled {
+  color: var(--el-color-warning);
+}
+
+.star-outline {
+  color: var(--el-text-color-secondary);
+  transition: all 0.3s ease;
+}
+
+.star-outline:hover {
+  color: var(--el-color-primary);
+  transform: scale(1.2);
 }
 </style> 

@@ -46,9 +46,9 @@
 import { ref, reactive, computed } from 'vue'
 import { Connection, Lock } from '@element-plus/icons-vue'
 import { useGMValue } from '../composables/useGMValue'
-import type { FormInstance, FormRules } from 'element-plus'
-import { ElMessage } from 'element-plus'
 import { useWindowSize } from '@vueuse/core'
+import { ElMessage } from 'element-plus'
+import type { FormInstance, FormRules, ServerConfig } from '../types/cookie'
 
 const emit = defineEmits<{
   (e: 'saved'): void
@@ -59,7 +59,7 @@ const SECRET_KEY = 'cookie-share-secret-key'
 const formRef = ref<FormInstance>()
 const saving = ref(false)
 
-const { value: storedConfig } = useGMValue('cookie_share_server_config', {
+const { value: storedConfig } = useGMValue<ServerConfig>('cookie_share_server_config', {
   url: '',
   password: '',
   remember: false

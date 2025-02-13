@@ -51,6 +51,8 @@ export default defineConfig({
               .concat(util.dataUrl(";window.Vue=Vue;")),
           'element-plus': cdn.jsdelivr("ElementPlus", "dist/index.full.min.js"),
           '@element-plus/icons-vue': cdn.jsdelivr("ElementPlusIconsVue", "dist/index.iife.min.js"),
+          'vuedraggable': cdn.jsdelivr("vuedraggable", "dist/vuedraggable.umd.js"),
+          'sortablejs': cdn.jsdelivr("Sortable", "Sortable.min.js")
         },
         externalResource: {
           'element-plus/dist/index.css': cdn.jsdelivr()

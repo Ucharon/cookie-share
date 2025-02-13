@@ -80,6 +80,8 @@ declare interface Window {
   GM_registerMenuCommand: typeof GM_registerMenuCommand
   GM_cookie: GM_cookie
   GM_xmlhttpRequest: (details: GMXMLHttpRequestDetails) => { abort: () => void }
+  GM_addValueChangeListener: typeof GM_addValueChangeListener
+  GM_removeValueChangeListener: typeof GM_removeValueChangeListener
 }
 
 declare function GM_setValue<T>(name: string, value: T): void
