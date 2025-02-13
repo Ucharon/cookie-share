@@ -131,11 +131,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Key, Setting, RefreshRight, Download, Upload, List, Loading } from '@element-plus/icons-vue'
 import { useGMValue } from '../composables/useGMValue'
 import { useWindowSize } from '@vueuse/core'
+import { debounce } from 'lodash-es'
 
 const props = defineProps<{
   visible: boolean
@@ -178,18 +179,22 @@ const selectRef = ref<HTMLElement>()
 const { width: windowWidth } = useWindowSize()
 const isMobile = computed(() => windowWidth.value < 768)
 
-const updateDropdownWidth = async () => {
+const updateDropdownWidth = debounce(async () => {
   await nextTick()
   if (selectRef.value) {
     const width = selectRef.value.getBoundingClientRect().width
     document.documentElement.style.setProperty('--select-width', `${width}px`)
   }
-}
+}, 100)
 
 onMounted(() => {
   loadCookieList()
   updateDropdownWidth()
   window.addEventListener('resize', updateDropdownWidth)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateDropdownWidth)
 })
 
 interface Cookie {
@@ -202,14 +207,21 @@ interface CookieListResponse {
   cookies: Cookie[]
 }
 
+interface GMXMLHttpRequestResponse {
+  status: number;
+  statusText: string;
+  response: any;
+  responseText: string;
+}
+
 const loadCookieList = async () => {
-  if (!serverConfig.value?.url) return
+  if (!serverConfig.value?.url || loading.value) return
   
   loading.value = true
   try {
     const currentHost = window.location.hostname.split('.').slice(-2).join('.')
     const baseDomain = `.${currentHost}`
-    const headers = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': 'application/json'
     }
@@ -218,7 +230,7 @@ const loadCookieList = async () => {
       headers['X-Admin-Password'] = serverConfig.value.password
     }
 
-    const response = await new Promise((resolve, reject) => {
+    const response = await new Promise<GMXMLHttpRequestResponse>((resolve, reject) => {
       GM_xmlhttpRequest({
         method: 'GET',
         url: `${serverConfig.value.url}/admin/list-cookies-by-host/${encodeURIComponent(currentHost)}`,
@@ -252,16 +264,16 @@ const loadCookieList = async () => {
       cookieList.value = data.cookies
       lastUpdateTime.value = new Date()
     } else {
-      const errorMsg = data?.message || response.statusText || `HTTP错误 ${response.status}`
+      const errorMsg = (data as any)?.message || response.statusText || `HTTP错误 ${response.status}`
       throw new Error(errorMsg)
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Cookie列表加载失败详情:', {
       error,
-      response: response?.response,
-      status: response?.status
+      response: (error as any)?.response,
+      status: (error as any)?.status
     })
-    ElMessage.error(`加载失败: ${error.message}`)
+    ElMessage.error(`加载失败: ${error instanceof Error ? error.message : '未知错误'}`)
     cookieList.value = []
   } finally {
     loading.value = false
@@ -272,6 +284,7 @@ const handleClose = () => {
   cookieId.value = ''
   cookieList.value = []
   lastUpdateTime.value = undefined
+  loading.value = false
   emit('update:visible', false)
 }
 
@@ -285,7 +298,7 @@ const handleSend = async () => {
   sending.value = true
   try {
     const cookies = await new Promise<any[]>((resolve) => {
-      GM_cookie.list({}, resolve)
+      (window as any).GM_cookie.list({}, resolve)
     })
 
     if (!cookies.length) {
@@ -348,9 +361,9 @@ const handleSend = async () => {
       const errorData = response.responseText ? JSON.parse(response.responseText) : {}
       throw new Error(errorData?.message || `HTTP错误 ${response.status}`)
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('分享失败完整错误:', error)
-    ElMessage.error(`分享失败: ${error.message}`)
+    ElMessage.error(`分享失败: ${error instanceof Error ? error.message : '未知错误'}`)
   } finally {
     sending.value = false
   }
@@ -421,18 +434,23 @@ const handleReceive = async () => {
       console.log('开始清除现有cookies...')
       // 清除现有的 cookies
       await new Promise((resolve) => {
-        GM_cookie.list({}, (cookies) => {
+        (window as any).GM_cookie.list({}, (cookies: any[]) => {
           const deletePromises = cookies.map(cookie => 
-            new Promise(resolveDelete => {
-              GM_cookie.delete({
+            new Promise<void>((resolveDelete) => {
+              // 跳过特殊cookie
+              if (cookie.name === 'XSRF-TOKEN') {
+                console.warn('跳过删除受保护的XSRF-TOKEN')
+                resolveDelete()
+                return
+              }
+              
+              (window as any).GM_cookie.delete({
                 name: cookie.name,
                 domain: cookie.domain,
                 path: cookie.path || '/'
-              }, (success) => {
-                if (success) {
-                  console.log('成功删除cookie:', cookie.name)
-                } else {
-                  console.error('删除cookie失败:', cookie.name)
+              }, (success: boolean) => {
+                if (!success) {
+                  console.error('删除cookie失败:', cookie.name, '可能受保护')
                 }
                 resolveDelete()
               })
@@ -449,7 +467,7 @@ const handleReceive = async () => {
           try {
             console.log('准备设置cookie:', JSON.stringify(cookie, null, 2))
             await new Promise((resolve, reject) => {
-              GM_cookie.set({
+              (window as any).GM_cookie.set({
                 name: cookie.name,
                 value: cookie.value,
                 domain: cookie.domain,
@@ -458,23 +476,30 @@ const handleReceive = async () => {
                 httpOnly: cookie.httpOnly,
                 sameSite: cookie.sameSite || 'Lax',
                 expirationDate: cookie.expirationDate
-              }, (setCookie, error) => {
+              }, (setCookie: any, error: any) => {
                 if (error) {
-                  console.error('设置cookie失败:', cookie.name, error)
+                  console.error('设置cookie失败:', cookie.name, '原因:', error)
+                  if (cookie.name === 'XSRF-TOKEN') {
+                    console.warn('跳过设置受保护的XSRF-TOKEN')
+                    resolve()
+                    return
+                  }
                   reject(error)
                 } else {
-                  console.log('成功设置cookie:', cookie.name, setCookie)
-                  GM_cookie.list({ 
-                    domain: cookie.domain,
-                    name: cookie.name 
-                  }, (currentCookies) => {
-                    console.log('验证指定cookie:', {
-                      name: cookie.name,
+                  console.log('成功设置cookie:', cookie.name, '详情:', JSON.stringify(setCookie, null, 2))
+                  try {
+                    (window as any).GM_cookie.list({ 
                       domain: cookie.domain,
-                      found: currentCookies.length > 0,
-                      cookies: currentCookies
+                      name: cookie.name 
+                    }, (currentCookies: any[]) => {
+                      console.log('验证结果:', {
+                        name: cookie.name,
+                        exists: currentCookies.length > 0
+                      })
                     })
-                  })
+                  } catch (e) {
+                    console.error('验证cookie时出错:', e)
+                  }
                   resolve()
                 }
               })
@@ -499,17 +524,14 @@ const handleReceive = async () => {
       }
 
       // 设置后立即验证
-      console.log('最终存储的cookies:')
-      GM_cookie.list({}, cookies => {
-        console.table(cookies.map(c => ({
-          name: c.name,
-          domain: c.domain,
-          path: c.path,
-          value: c.value.slice(0, 10) + '...',
-          secure: c.secure,
-          httpOnly: c.httpOnly
-        })))
-      })
+      console.log('当前存储的cookies:', response.response.cookies.map(c => ({
+        name: c.name,
+        domain: c.domain,
+        path: c.path,
+        value: c.value.slice(0, 10) + '...',
+        secure: c.secure,
+        httpOnly: c.httpOnly
+      })))
     } else {
       console.error('HTTP错误:', {
         status: response.status,
@@ -523,13 +545,17 @@ const handleReceive = async () => {
         `HTTP错误 ${response.status}`
       )
     }
-  } catch (error) {
-    console.error('整体错误:', error, {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : '未知错误'
+    const errorStack = error instanceof Error ? error.stack : undefined
+    
+    console.error('整体错误:', {
       error,
-      message: error.message,
-      stack: error.stack
+      message: errorMessage,
+      stack: errorStack
     })
-    ElMessage.error(`获取失败: ${error.message}`)
+    
+    ElMessage.error(`获取失败: ${errorMessage}`)
   } finally {
     receiving.value = false
   }
@@ -543,8 +569,14 @@ watch(() => props.visible, (newVal) => {
   dialogVisible.value = newVal
 })
 
+watch(dialogVisible, (newVal) => {
+  if (newVal) {
+    loadCookieList()
+  }
+})
+
 watch(serverConfig, (newConfig) => {
-  if (newConfig.url) {
+  if (newConfig.url && newConfig.url !== serverConfig.value.url) {
     loadCookieList()
   }
 }, { deep: true, immediate: true })
